@@ -598,7 +598,7 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 			}
 
-
+		
 
 	}
 
