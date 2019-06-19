@@ -1,0 +1,20 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/cygdrive/c/Users/User/CLionProjects/ParallelViterbi/main.cpp
+iostream
+-
+cstdlib
+-
+random
+-
+ctime
+-
+fstream
+-
+

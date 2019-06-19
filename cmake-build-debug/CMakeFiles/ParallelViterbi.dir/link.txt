@@ -1,0 +1,1 @@
+/usr/bin/c++.exe -g  -Wl,--enable-auto-import CMakeFiles/ParallelViterbi.dir/main.cpp.o  -o ParallelViterbi.exe -Wl,--out-implib,libParallelViterbi.dll.a -Wl,--major-image-version,0,--minor-image-version,0 
