@@ -8,7 +8,7 @@
 #include <random>
 #include <ctime>
 #include <fstream>
-
+#include <tuple>
 using namespace std;
 #define MAX_T 10000
 #define MIN_T 1000
@@ -158,12 +158,10 @@ void viterbiCPU(int nK, int nT){
 
     int argmax=-1;
 
-	printf("Serial\n");
     for (int i = 0; i <nK; ++i) { // For each state
 
         T1[i][0] = pi[i]*B[i][Y[0]];
 
-		//printf("%d, %d,%f, %f, %f\n", i,Y[0], pi[i], B[i][Y[0]], pi[i]*B[i][Y[0]]);
 
 
         T2[i][0] = 0.0;
@@ -179,7 +177,11 @@ void viterbiCPU(int nK, int nT){
             maxT2 = -1;
             for (int k = 0; k < nK; ++k) { // For each state
 
+
                 tempMaxT2 = T1[k][j-1] * A[k][i];
+
+
+
 
                 tempMaxT1= tempMaxT2*B[i][Y[j]];
 
@@ -319,11 +321,20 @@ void CPUexperiments(bool suppressTracking, bool suppressDetails){
 }
 
 
-tuple<int,int,int> calculateStartK(int rank, int k, int procs){
+tuple<int,int,int>* assignRows(int rank, int k, int procs){
 
   int * startKs = (int*)malloc(procs*sizeof(int));
   int * endKs = (int*)malloc(procs*sizeof(int));
   int * section_sizes = (int*)malloc(procs*sizeof(int));
+
+  tuple<int,int,int> * assignments = (tuple<int,int,int>*)malloc(procs*sizeof(tuple<int,int,int>));
+
+  for (int i = 0; i < procs; i++) {
+
+    section_sizes[i] = 0;
+    startKs[i] = 0;
+    endKs[i] = 0;
+    }
 
   for (int i = 0; i < k; i++) {
 
@@ -332,29 +343,38 @@ tuple<int,int,int> calculateStartK(int rank, int k, int procs){
 
   }
 
-  for(int i =1; i <k; i++){
+  for(int i =1; i <procs; i++){
 
     startKs[i] = startKs[i-1]+section_sizes[i-1];
 
 
     }
 
-  for (int i = 0; i < k; i++) {
+  for (int i = 0; i < procs; i++) {
 
-    
+    endKs[i] = startKs[i] + section_sizes[i] - 1;
 
   }
 
+for(int i=0;i< procs; i++){
+
+
+  assignments[i] = make_tuple(startKs[i], endKs[i], section_sizes[i]);
+
 }
 
-void viterbiMPI(int k, int t, int argc, char *argv[]){
+  return assignments;
+
+}
+//////////////////////////////////////////////////////
+
+void viterbiMPI(int k, int t){
 
 
 	int num_procs, myrank, section_size, startk, endk, counter;
 
 	generateInputs();
 
-	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
 	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
 
@@ -363,14 +383,15 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 	MPI_Type_commit(&y);
 	MPI_Bcast(Y, 1,y,0,MPI_COMM_WORLD);
 
+  tuple<int,int,int> * assignments = (tuple<int,int,int>*)malloc(num_procs*sizeof(tuple<int,int,int>));
+
+  assignments = assignRows(myrank,k,num_procs);
 
 
-	section_size = ((k-1)/num_procs)+1;
 
-  int requiredProcs = (k-1)/section_size+1;
 
-	startk = myrank * section_size;
-	endk = (myrank+1) * section_size -1;
+
+  std::tie(startk,endk,section_size) = assignments[myrank];
 
 
 
@@ -404,7 +425,6 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
     	MPI_Type_commit(&T2Col);
 
 
-	if(endk > k) endk = k-1;
 
 
 
@@ -412,7 +432,6 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 		T1[i][0] = pi[i]*B[i][Y[0]];
 
-		//printf("%d,  %d, %f , %f , %f \n", i,Y[0],pi[i], B[i][Y[0]], pi[i]*B[i][Y[0]]);
 
 
 		sendCol[i-startk] = T1[i][0];
@@ -420,11 +439,8 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 		T2[i][0] = 0;
 
 				}
-        // if(myrank== num_procs-1){
-        //
-        //   for(int j=0; j<)
-        //
-        // }
+
+
 	MPI_Barrier(MPI_COMM_WORLD);
 
 
@@ -450,18 +466,12 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 			counter++;
 
-			int senderStartK = sender* section_size;
-		    int senderEndK = (sender+1) * section_size - 1;
+      int senderStartK, senderEndK, senderSectionSize;
+
+      std::tie(senderStartK,senderEndK, senderSectionSize) = assignments[sender];
 
 
 
-			if(senderEndK >= k)	senderEndK = k-1;
-
-
-			if(senderStartK >= k) senderStartK = k-1;
-
-
-						//printf("Sender is %d \t startk is %d \t endk is %d \n",sender, senderStartK,senderEndK);
 
 			for(int i = senderStartK; i <= senderEndK; i++){ // populating column from received subcolumns
 
@@ -500,9 +510,9 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 		MPI_Barrier(MPI_COMM_WORLD);
 	int argmaxTA;
-	double maxTA = 0.0;
+	double maxTA = -1.0;
 	double tempTA;
-	double maxTAB = 0.0;
+	double maxTAB = -1.0;
 	double tempTAB;
 
 	for(int j = 1; j < t; j++){ // For each observation
@@ -517,6 +527,7 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 				tempTA = T1[m][j-1]*A[m][i]; // T1[k,j-1]*A_ki
 
 
+
 				if(tempTA >maxTA){
 
 					maxTA = tempTA;
@@ -525,6 +536,7 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 					}
 
 				tempTAB = tempTA*B[i][Y[j]];
+
 
 				if(tempTAB > maxTAB) maxTAB = tempTAB;
 
@@ -559,15 +571,11 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 				counter++;
 
-				int senderStartK = sender* section_size;
-				int senderEndK = (sender+1) * section_size - 1;
+        int senderStartK, senderEndK, senderSectionSize;
+
+        std::tie(senderStartK,senderEndK, senderSectionSize) = assignments[sender];
 
 
-
-				if(senderEndK >= k)	senderEndK = k-1;
-
-
-				if(senderStartK >= k) senderStartK = k-1;
 
 
 				for(int i = senderStartK; i <= senderEndK; i++){
@@ -626,16 +634,11 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 
 				counter++;
+        int senderStartK, senderEndK, senderSectionSize;
 
-				int senderStartK = sender* section_size;
-				int senderEndK = (sender+1) * section_size - 1;
-
-
-
-				if(senderEndK >= k)	senderEndK = k-1;
+        std::tie(senderStartK,senderEndK, senderSectionSize) = assignments[sender];
 
 
-				if(senderStartK >= k) senderStartK = k-1;
 
 
 				for(int i = senderStartK; i <= senderEndK; i++){
@@ -677,33 +680,41 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
   } // Correct
 
+  MPI_Barrier(MPI_COMM_WORLD);
+
+// if(myrank ==0){
+//
+//   cout<< "For observation " << j << endl;
+//
+//   for (int i = 0; i < k; i++) {
+//     for (int m = 0; m < t; m++) {
+//
+//       cout << T2[i][m] << " ";
+//
+//     }
+//     cout<<endl;
+//   }
+//
+//   for (int i = 0; i < k; i++) {
+//     for (int m = 0; m < t; m++) {
+//
+//       cout << T1[i][m] << " ";
+//
+//     }
+//     cout<<endl;
+//   }
+//
+// }
+// if(myrank == 0) cout << "Completed \n";
+// MPI_Barrier(MPI_COMM_WORLD);
+// }
 
 
-if(myrank ==0){
 
-  cout<< "For observation " << j << endl;
-
-  // for (int i = 0; i < k; i++) {
-  //   for (int m = 0; m < t; m++) {
-  //
-  //     cout << T2[i][m] << " ";
-  //
-  //   }
-  //   cout<<endl;
-  // }
-
-  for (int i = 0; i < k; i++) {
-    for (int m = 0; m < t; m++) {
-
-      cout << T1[i][m] << " ";
-
-    }
-    cout<<endl;
-  }
 
 }
-MPI_Barrier(MPI_COMM_WORLD);
-}
+
+
 	if(myrank ==0){
 
 		double max = -1;
@@ -730,35 +741,44 @@ MPI_Barrier(MPI_COMM_WORLD);
 
 		}
 
-		printPath(9);
+
+
 	}
 
-MPI_Barrier(MPI_COMM_WORLD);
-MPI_Finalize();
-
-if(myrank == 0){
-
-  printf("Starting Viterbi MPI with \t K = %d \t T = %d \n\n", k,t);
-  viterbiCPU(k,t);
-
-  for (int i = 0; i < k; i++) {
-    for (int m = 0; m < t; m++) {
-
-      cout << T1[i][m] << " ";
-
-    }
-    cout<<endl;
-  }
 
 }
-}
-
 
 int main( int argc, char *argv[]){
 
-viterbiMPI(10,10,argc,argv);
+int k,t;
+MPI_Init(&argc,&argv);
+int myrank;
 
 
+MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+// if(myrank ==0){
+//
+//   k = (int)atoi(argv[1]);
+//   t = (int)atoi(argv[2]);
+//   printf("%d %d\n", k,t);
+// }
+// MPI_Bcast(&k, 1,MPI_INT,0,MPI_COMM_WORLD);
+// MPI_Bcast(&t, 1,MPI_INT,0,MPI_COMM_WORLD);
+//
+// if(myrank ==1){
+//
+// printf("%d %d\n", k,t);
+//
+// }
+
+generateInputs();
+double s = MPI_Wtime();
+viterbiMPI(250,10000);
+double e = MPI_Wtime();
+
+if(myrank==0) cout << (e-s)/(double)1000.0;
+
+MPI_Finalize();
 
 
 
