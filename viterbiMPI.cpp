@@ -19,7 +19,7 @@ using namespace std;
 #define NUM_SAMPLES 50
 
 double T1[MAX_K][MAX_T];
-double T2[MAX_K][MAX_T];
+int T2[MAX_K][MAX_T];
 double pi[MAX_K];
 int Y[MAX_T];
 int X[MAX_T];
@@ -162,13 +162,13 @@ void viterbiCPU(int nK, int nT){
     for (int i = 0; i <nK; ++i) { // For each state
 
         T1[i][0] = pi[i]*B[i][Y[0]];
-		
+
 		//printf("%d, %d,%f, %f, %f\n", i,Y[0], pi[i], B[i][Y[0]], pi[i]*B[i][Y[0]]);
 
 
         T2[i][0] = 0.0;
     }
-		
+
 		cout << "\n";
 
     for (int j = 1; j <nT ; ++j) {  // For each observation
@@ -319,42 +319,60 @@ void CPUexperiments(bool suppressTracking, bool suppressDetails){
 }
 
 
+tuple<int,int,int> calculateStartK(int rank, int k, int procs){
+
+  int * startKs = (int*)malloc(procs*sizeof(int));
+  int * endKs = (int*)malloc(procs*sizeof(int));
+  int * section_sizes = (int*)malloc(procs*sizeof(int));
+
+  for (int i = 0; i < k; i++) {
+
+
+    section_sizes[i%procs] +=1;
+
+  }
+
+  for(int i =1; i <k; i++){
+
+    startKs[i] = startKs[i-1]+section_sizes[i-1];
+
+
+    }
+
+  for (int i = 0; i < k; i++) {
+
+    
+
+  }
+
+}
+
 void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 
 	int num_procs, myrank, section_size, startk, endk, counter;
-	
+
 	generateInputs();
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
 	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
 
-	
 	MPI_Datatype y;
 	MPI_Type_contiguous(MAX_T, MPI_INT, &y);
 	MPI_Type_commit(&y);
 	MPI_Bcast(Y, 1,y,0,MPI_COMM_WORLD);
-	
-
-	if(myrank == 0){
-		
-		printf("Starting Viterbi MPI with \t K = %d \t T = %d \n\n", k,t);
-		viterbiCPU(k,t);
-		printPath(10);
-	}
-
-	MPI_Barrier(MPI_COMM_WORLD);
 
 
-	section_size = ( (k-1) / num_procs) + 1;
 
-	
+	section_size = ((k-1)/num_procs)+1;
+
+  int requiredProcs = (k-1)/section_size+1;
 
 	startk = myrank * section_size;
 	endk = (myrank+1) * section_size -1;
 
-	
+
 
 
 	double * sendCol = (double*)malloc(section_size*sizeof(double));
@@ -368,9 +386,6 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 	int * t2Column = (int*)malloc(k*sizeof(int));
 
 
-	if(endk > k) endk = k-1;
-
-
 
 	MPI_Datatype colType, colTypeInt;
 	MPI_Type_contiguous(section_size, MPI_DOUBLE, &colType);
@@ -378,49 +393,67 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 	MPI_Type_contiguous(section_size, MPI_DOUBLE, &colTypeInt);
 	MPI_Type_commit(&colTypeInt);
 
-	
+
+  	MPI_Datatype T1Col;
+  	MPI_Type_contiguous(k, MPI_DOUBLE, &T1Col);
+  	MPI_Type_commit(&T1Col);
+
+
+    	MPI_Datatype T2Col;
+    	MPI_Type_contiguous(k, MPI_INT, &T2Col);
+    	MPI_Type_commit(&T2Col);
+
+
+	if(endk > k) endk = k-1;
+
+
+
 	for(int i = startk; i <=endk;i++){
 
 		T1[i][0] = pi[i]*B[i][Y[0]];
 
 		//printf("%d,  %d, %f , %f , %f \n", i,Y[0],pi[i], B[i][Y[0]], pi[i]*B[i][Y[0]]);
 
+
 		sendCol[i-startk] = T1[i][0];
 
-		T2[i][0] = 0;	
-	
+		T2[i][0] = 0;
 
 				}
-	
+        // if(myrank== num_procs-1){
+        //
+        //   for(int j=0; j<)
+        //
+        // }
 	MPI_Barrier(MPI_COMM_WORLD);
-	
+
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	counter = 0;
+
 	MPI_Status status;
 	int sender;
 
 	if(myrank != 0){
 
 		MPI_Send(sendCol, 1, colType, 0, myrank,MPI_COMM_WORLD);
-			
+
 		}
 
 	else{
-
+    counter = 0;
 		while(counter < num_procs-1){
 
 			MPI_Recv(recvCol, 1, colType, MPI_ANY_SOURCE, MPI_ANY_TAG,MPI_COMM_WORLD, &status);
-			
+
 			sender = status.MPI_SOURCE;
 
 			counter++;
-			
+
 			int senderStartK = sender* section_size;
 		    int senderEndK = (sender+1) * section_size - 1;
 
-			
+
 
 			if(senderEndK >= k)	senderEndK = k-1;
 
@@ -429,52 +462,59 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 
 
 						//printf("Sender is %d \t startk is %d \t endk is %d \n",sender, senderStartK,senderEndK);
-			
-			for(int i = senderStartK; i <= senderEndK; i++){
+
+			for(int i = senderStartK; i <= senderEndK; i++){ // populating column from received subcolumns
 
 				T1[i][0] = recvCol[i-senderStartK];
-				
-				
+
+
 				t1Column[i] = T1[i][0];
 				}
 
 
 			}
-			
-	
+
+
 		for(int i =startk; i <=endk; i++){
 
-			t1Column[i] = sendCol[i];
+			t1Column[i] = sendCol[i]; // Add node zero's data to column
 
 			}
-		
+
+
 	}
-	MPI_Barrier(MPI_COMM_WORLD);
-	
-	MPI_Datatype T1Col;
-	MPI_Type_contiguous(k, MPI_DOUBLE, &T1Col);
-	MPI_Type_commit(&T1Col);
-	MPI_Bcast(t1Column, 1,T1Col,0,MPI_COMM_WORLD);
-	
+
+
+	MPI_Bcast(t1Column, 1,T1Col,0,MPI_COMM_WORLD); // send the constructed column to all nodes
+
+	for(int i = 0; i<k; i++){
+
+	T1[i][0] = t1Column[i]; // Populate T1 first column for all nodes
+
+	}
+
+
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	
+
+
+		MPI_Barrier(MPI_COMM_WORLD);
 	int argmaxTA;
 	double maxTA = 0.0;
 	double tempTA;
 	double maxTAB = 0.0;
 	double tempTAB;
 
-	for(int j = 1; j < t; j++){
+	for(int j = 1; j < t; j++){ // For each observation
 
-		//if(myrank == 0) printf("For observation %d\n", j);
+			//if(myrank == 0) printf("For observation %d\n", j);
 
-	for(int i = startk; i <=endk;i++){
+		for(int i = startk; i <=endk;i++){ // For each state
 
-				
+
 			for(int m = 0; m<k; m++){
 
-				tempTA = T1[m][j-1]*A[m][i];
+				tempTA = T1[m][j-1]*A[m][i]; // T1[k,j-1]*A_ki
 
 
 				if(tempTA >maxTA){
@@ -482,136 +522,188 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 					maxTA = tempTA;
 					argmaxTA = m;
 
-				}
+					}
 
 				tempTAB = tempTA*B[i][Y[j]];
-				
-				if(tempTAB > maxTAB) maxTAB = tempTAB;	
-	
 
-			}
-	
-		sendCol[i-startk] = maxTAB;
-		sendColInt[i-startk] = argmaxTA;
-
-	}
-	
-	MPI_Barrier(MPI_COMM_WORLD);
-
-		
-	if(myrank != 0){
+				if(tempTAB > maxTAB) maxTAB = tempTAB;
 
 
-		MPI_Send(sendCol, 1, colType, 0, myrank,MPI_COMM_WORLD);
-		
-	}
-	else{
-		
-		counter = 0;
-
-		while(counter < num_procs-1){
-
-			MPI_Recv(recvCol, 1, colType, MPI_ANY_SOURCE, MPI_ANY_TAG,MPI_COMM_WORLD, &status);
-			
-			
-			
-			sender = status.MPI_SOURCE;
-
-			counter++;
-			
-			int senderStartK = sender* section_size;
-		    int senderEndK = (sender+1) * section_size - 1;
-
-			
-
-			if(senderEndK >= k)	senderEndK = k-1;
-
-
-			if(senderStartK >= k) senderStartK = k-1;
-
-
-			for(int i = senderStartK; i <= senderEndK; i++){
-
-				T1[i][j] = recvCol[i-senderStartK];
-				
-				
-				t1Column[i] = T1[i][j];
 				}
 
-		}
-	
-		for(int i =startk; i <=endk; i++){
+			sendCol[i-startk] = maxTAB;
+			sendColInt[i-startk] = argmaxTA;
 
-			t1Column[i] = sendCol[i]; 
+		}
+
+		MPI_Barrier(MPI_COMM_WORLD);
+
+	/////////////////////////////////////////////////////////////////////////////
+    if(myrank != 0){
+
+
+			MPI_Send(sendCol, 1, colType, 0, myrank,MPI_COMM_WORLD);
+
+		}
+		else{
+
+			counter = 0;
+
+			while(counter < num_procs-1){
+
+				MPI_Recv(recvCol, 1, colType, MPI_ANY_SOURCE, MPI_ANY_TAG,MPI_COMM_WORLD, &status);
+
+
+
+				sender = status.MPI_SOURCE;
+
+				counter++;
+
+				int senderStartK = sender* section_size;
+				int senderEndK = (sender+1) * section_size - 1;
+
+
+
+				if(senderEndK >= k)	senderEndK = k-1;
+
+
+				if(senderStartK >= k) senderStartK = k-1;
+
+
+				for(int i = senderStartK; i <= senderEndK; i++){
+
+					T1[i][j] = recvCol[i-senderStartK]; // Populate
+
+
+					t1Column[i] = T1[i][j]; // Populate column with received subcolumns
+					}
 
 			}
 
+			for(int i =startk; i <=endk; i++){
+
+				t1Column[i] = sendCol[i]; // Add local data to column
+
+				}
+        //
+        //   printf("T1 before: ");
+        // for (int i = 0; i < 5; i++) {
+        //
+        //   printf("%f , ", t1Column[i]);
+        //
+        // }
+        // cout<<endl;
+		}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+		MPI_Bcast(t1Column, 1,T1Col,0,MPI_COMM_WORLD);
+
+		for(int i = 0; i<k; i++){
+
+		T1[i][j] = t1Column[i];
+
+		}
 
 
-	}
+		if(myrank != 0){
 
-		
-	if(myrank != 0){
+			MPI_Send(sendColInt, 1, colTypeInt, 0, myrank,MPI_COMM_WORLD);
 
+		}
+		else{
 
-		MPI_Send(sendColInt, 1, colTypeInt, 0, myrank,MPI_COMM_WORLD);
-		
-	}
-	else{
-		
-		counter = 0;
+			counter = 0;
 
-		while(counter < num_procs-1){
+			while(counter < num_procs-1){
 
-			MPI_Recv(recvColInt, 1, colTypeInt, MPI_ANY_SOURCE, MPI_ANY_TAG,MPI_COMM_WORLD, &status);
-			
-			
-			
-			sender = status.MPI_SOURCE;
-
-			counter++;
-			
-			int senderStartK = sender* section_size;
-		    int senderEndK = (sender+1) * section_size - 1;
-
-			
-
-			if(senderEndK >= k)	senderEndK = k-1;
+				MPI_Recv(recvColInt, 1, colTypeInt, MPI_ANY_SOURCE, MPI_ANY_TAG,MPI_COMM_WORLD, &status);
 
 
-			if(senderStartK >= k) senderStartK = k-1;
+
+				sender = status.MPI_SOURCE;
 
 
-			for(int i = senderStartK; i <= senderEndK; i++){
 
-				T2[i][j] = recvColInt[i-senderStartK];
-				
-				
-				t2Column[i] = T2[i][j];
+				counter++;
+
+				int senderStartK = sender* section_size;
+				int senderEndK = (sender+1) * section_size - 1;
+
+
+
+				if(senderEndK >= k)	senderEndK = k-1;
+
+
+				if(senderStartK >= k) senderStartK = k-1;
+
+
+				for(int i = senderStartK; i <= senderEndK; i++){
+
+					T2[i][j] = recvColInt[i-senderStartK];
+
+
+					t2Column[i] = T2[i][j];
+					}
+
+			}
+
+			for(int i =startk; i <=endk; i++){
+
+				t2Column[i] = sendColInt[i];
+
 				}
 
+
+                //   printf("T2 before: ");
+                // for (int i = 0; i < 5; i++) {
+                //
+                //   printf("%d , ", t2Column[i]);
+                //
+                // }
+                // cout<<endl;
+
 		}
-	
-		for(int i =startk; i <=endk; i++){
 
-			t2Column[i] = sendColInt[i]; 
+	/////////////////////////////////////////////////////
 
-			}
-
-		
-
-	}
+  MPI_Bcast(t2Column, 1,T2Col,0,MPI_COMM_WORLD);
 
 
+    for (int i = 0; i < k; i++) {
+
+      T2[i][j] = t2Column[i];
 
 
+  } // Correct
 
 
 
+if(myrank ==0){
 
-	}
-	
-	
+  cout<< "For observation " << j << endl;
+
+  // for (int i = 0; i < k; i++) {
+  //   for (int m = 0; m < t; m++) {
+  //
+  //     cout << T2[i][m] << " ";
+  //
+  //   }
+  //   cout<<endl;
+  // }
+
+  for (int i = 0; i < k; i++) {
+    for (int m = 0; m < t; m++) {
+
+      cout << T1[i][m] << " ";
+
+    }
+    cout<<endl;
+  }
+
+}
+MPI_Barrier(MPI_COMM_WORLD);
+}
 	if(myrank ==0){
 
 		double max = -1;
@@ -628,30 +720,47 @@ void viterbiMPI(int k, int t, int argc, char *argv[]){
 		}
 
 		X[t-1] = argmax;
-		
-		
+
+
 
 		for(int j = t-1; j>0; j--) {
 
-			cout << j << " " << X[j] << "\n";
+			//cout << j << " " << X[j] << "\n";
 			X[j-1] = T2[X[j]][j];
 
 		}
-		
-		printPath(9);	
+
+		printPath(9);
 	}
 
 MPI_Barrier(MPI_COMM_WORLD);
 MPI_Finalize();
 
+if(myrank == 0){
 
+  printf("Starting Viterbi MPI with \t K = %d \t T = %d \n\n", k,t);
+  viterbiCPU(k,t);
+
+  for (int i = 0; i < k; i++) {
+    for (int m = 0; m < t; m++) {
+
+      cout << T1[i][m] << " ";
+
+    }
+    cout<<endl;
+  }
+
+}
 }
 
 
-int main( int argc, char *argv[])
-{
+int main( int argc, char *argv[]){
 
 viterbiMPI(10,10,argc,argv);
+
+
+
+
 
 return 0;
 
