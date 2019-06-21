@@ -12,7 +12,7 @@
 using namespace std;
 #define MAX_T 10000
 #define MIN_T 1000
-#define MAX_K 250
+#define MAX_K 400
 #define MIN_K  50
 #define N 10
 
@@ -389,9 +389,9 @@ void viterbiMPI(int k, int t){
 
 
 
-
-
   std::tie(startk,endk,section_size) = assignments[myrank];
+
+
 
 
 
@@ -517,7 +517,6 @@ void viterbiMPI(int k, int t){
 
 	for(int j = 1; j < t; j++){ // For each observation
 
-			//if(myrank == 0) printf("For observation %d\n", j);
 
 		for(int i = startk; i <=endk;i++){ // For each state
 
@@ -589,23 +588,17 @@ void viterbiMPI(int k, int t){
 			}
 
 			for(int i =startk; i <=endk; i++){
-
 				t1Column[i] = sendCol[i]; // Add local data to column
 
 				}
-        //
-        //   printf("T1 before: ");
-        // for (int i = 0; i < 5; i++) {
-        //
-        //   printf("%f , ", t1Column[i]);
-        //
-        // }
-        // cout<<endl;
+
 		}
 
 	///////////////////////////////////////////////////////////////////////////////
 
 		MPI_Bcast(t1Column, 1,T1Col,0,MPI_COMM_WORLD);
+
+
 
 		for(int i = 0; i<k; i++){
 
@@ -613,6 +606,7 @@ void viterbiMPI(int k, int t){
 
 		}
 
+    MPI_Barrier(MPI_COMM_WORLD);
 
 		if(myrank != 0){
 
@@ -658,14 +652,6 @@ void viterbiMPI(int k, int t){
 				}
 
 
-                //   printf("T2 before: ");
-                // for (int i = 0; i < 5; i++) {
-                //
-                //   printf("%d , ", t2Column[i]);
-                //
-                // }
-                // cout<<endl;
-
 		}
 
 	/////////////////////////////////////////////////////
@@ -673,77 +659,51 @@ void viterbiMPI(int k, int t){
   MPI_Bcast(t2Column, 1,T2Col,0,MPI_COMM_WORLD);
 
 
+
     for (int i = 0; i < k; i++) {
 
       T2[i][j] = t2Column[i];
 
 
-  } // Correct
+  }
+
 
   MPI_Barrier(MPI_COMM_WORLD);
-
-// if(myrank ==0){
-//
-//   cout<< "For observation " << j << endl;
-//
-//   for (int i = 0; i < k; i++) {
-//     for (int m = 0; m < t; m++) {
-//
-//       cout << T2[i][m] << " ";
-//
-//     }
-//     cout<<endl;
-//   }
-//
-//   for (int i = 0; i < k; i++) {
-//     for (int m = 0; m < t; m++) {
-//
-//       cout << T1[i][m] << " ";
-//
-//     }
-//     cout<<endl;
-//   }
-//
-// }
-// if(myrank == 0) cout << "Completed \n";
-// MPI_Barrier(MPI_COMM_WORLD);
-// }
 
 
 
 
 }
 
-
-	if(myrank ==0){
-
-		double max = -1;
-		int argmax = -1;
-		for(int m = 0; m<k; m++){
-
-			if(T1[m][t-1] > max){
-
-			max = T1[m][t-1];
-			argmax = m;
-
-			}
-
-		}
-
-		X[t-1] = argmax;
-
-
-
-		for(int j = t-1; j>0; j--) {
-
-			//cout << j << " " << X[j] << "\n";
-			X[j-1] = T2[X[j]][j];
-
-		}
-
-
-
-	}
+	// if(myrank ==0){
+  //
+	// 	double max = -1;
+	// 	int argmax = -1;
+	// 	for(int m = 0; m<k; m++){
+  //
+	// 		if(T1[m][t-1] > max){
+  //
+	// 		max = T1[m][t-1];
+	// 		argmax = m;
+  //
+	// 		}
+  //
+	// 	}
+  //
+	// 	X[t-1] = argmax;
+  //
+  //
+  //
+	// 	for(int j = t-1; j>0; j--) {
+  //
+	// 		//cout << j << " " << X[j] << "\n";
+	// 		X[j-1] = T2[X[j]][j];
+  //
+	// 	}
+  //
+  //
+  //
+	// }
 
 
 }
@@ -753,9 +713,10 @@ int main( int argc, char *argv[]){
 int k,t;
 MPI_Init(&argc,&argv);
 int myrank;
-
+double e,s;
 
 MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+
 // if(myrank ==0){
 //
 //   k = (int)atoi(argv[1]);
@@ -772,15 +733,15 @@ MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
 // }
 
 generateInputs();
-double s = MPI_Wtime();
-viterbiMPI(250,10000);
-double e = MPI_Wtime();
+MPI_Barrier(MPI_COMM_WORLD);
+if(myrank ==0)s = MPI_Wtime();
+viterbiMPI(MAX_K,MAX_T);
+if(myrank==0)e = MPI_Wtime();
 
-if(myrank==0) cout << (e-s)/(double)1000.0;
-
+if(myrank==0)cout << "Finished viterbi" <<endl;
+if(myrank==0) cout << (e-s);
+MPI_Barrier(MPI_COMM_WORLD);
 MPI_Finalize();
-
-
 
 return 0;
 
